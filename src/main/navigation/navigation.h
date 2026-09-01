@@ -786,6 +786,7 @@ bool navigationIsControllingAltitude(void);
  */
 bool navigationRTHAllowsLanding(void);
 bool isWaypointMissionRTHActive(void);
+bool isWpMissionPlannerActive(void);
 
 bool rthClimbStageActiveAndComplete(void);
 
