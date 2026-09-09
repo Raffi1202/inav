@@ -13,8 +13,11 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # The release repository belongs to upstream. Fork builds keep their
+    # artifacts on the triggering workflow run and must not publish upstream.
     # Only act on pull_request-triggered runs that succeeded.
     if: >
+      github.repository == 'iNavFlight/inav' &&
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success'
     # Prevent concurrent runs for the same PR branch racing on the
