@@ -40,6 +40,7 @@ jobs:
   publish-baseline:
     runs-on: ubuntu-latest
     if: >
+      github.repository == 'iNavFlight/inav' &&
       github.event.workflow_run.name == 'Build pre-release' &&
       github.event.workflow_run.event == 'push'
     concurrency:
