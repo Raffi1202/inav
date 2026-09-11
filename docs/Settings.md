@@ -910,6 +910,16 @@ Unique identifier for this device. Valid values are 1 to 127. 126 and 127 are re
 
 ---
 
+### dronecan_use_dna_server
+
+Enable the DNA server to manage plug and play dronecan devices
+
+| Default | Min | Max |
+| --- | --- | --- |
+| ON | OFF | ON |
+
+---
+
 ### dshot_beeper_enabled
 
 Whether using DShot motors as beepers is enabled
@@ -1962,6 +1972,16 @@ Which SBAS mode to be used
 
 ---
 
+### gps_ublox_assistnow_autonomous
+
+Enable AssistNow Autonomous on u-blox M8 and newer receivers. The receiver predicts satellite orbits from data it collected on earlier power-ups and uses them for a faster fix after a cold start, without any internet download. Needs the receiver's backup power (battery or supercapacitor) to keep the data between flights. OFF explicitly disables AssistNow Autonomous during receiver auto-configuration [OFF/ON].
+
+| Default | Min | Max |
+| --- | --- | --- |
+| OFF | OFF | ON |
+
+---
+
 ### gps_ublox_nav_hz
 
 Navigation update rate for UBLOX receivers. M9 modules limit satellite tracking to 16 satellites at 10Hz or higher, but use 32 satellites below 10Hz for better accuracy. M10 modules work well at 8Hz with 3 constellations. Some M10 devices with high-performance clock can do up to 25Hz with 4 constellations. 8Hz is a safe, accurate default for M8/M9/M10.
@@ -2805,6 +2825,7 @@ Selection of mag hardware. See Wiki Sensor auto detect and hardware failure dete
 | RM3100 |  |
 | VCM5883 |  |
 | MLX90393 |  |
+| LIS2MDL |  |
 | FAKE |  |
 
 ---

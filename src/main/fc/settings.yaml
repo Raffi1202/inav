@@ -8,7 +8,7 @@ tables:
     values: ["NONE", "SRF10", "VL53L0X", "MSP", "BENEWAKE", "VL53L1X", "US42", "TOF10120_I2C", "FAKE", "TERARANGER_EVO", "USD1_V0", "NRA"]
     enum: rangefinderType_e
   - name: mag_hardware
-    values: ["NONE", "AUTO", "HMC5883", "AK8975", "MAG3110", "AK8963", "IST8310", "QMC5883", "QMC5883P", "MPU9250", "IST8308", "LIS3MDL", "MSP", "RM3100", "VCM5883", "MLX90393", "FAKE"]
+    values: ["NONE", "AUTO", "HMC5883", "AK8975", "MAG3110", "AK8963", "IST8310", "QMC5883", "QMC5883P", "MPU9250", "IST8308", "LIS3MDL", "MSP", "RM3100", "VCM5883", "MLX90393", "LIS2MDL", "FAKE"]
     enum: magSensor_e
   - name: opflow_hardware
     values: ["NONE", "CXOF", "MSP", "FAKE"]
@@ -1840,6 +1840,11 @@ groups:
         default_value: OFF
         field: ubloxUseGlonass
         type: bool
+      - name: gps_ublox_assistnow_autonomous
+        description: "Enable AssistNow Autonomous on u-blox M8 and newer receivers. The receiver predicts satellite orbits from data it collected on earlier power-ups and uses them for a faster fix after a cold start, without any internet download. Needs the receiver's backup power (battery or supercapacitor) to keep the data between flights. OFF explicitly disables AssistNow Autonomous during receiver auto-configuration [OFF/ON]."
+        default_value: OFF
+        field: ubloxAssistNowAutonomous
+        type: bool
       - name: gps_min_sats
         description: "Minimum number of GPS satellites in view to acquire GPS_FIX and consider GPS position valid. Some GPS receivers appeared to be very inaccurate with low satellite count."
         default_value: 6
@@ -3370,6 +3375,7 @@ groups:
         min: INT16_MIN
         max: INT16_MAX
       - name: mavlink_port1_ext_status_rate
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink[0].extended_status_rate
         description: "Rate of the extended status message for MAVLink telemetry on port 1"
         type: uint8_t
@@ -3377,12 +3383,14 @@ groups:
         max: 255
         default_value: 2
       - name: mavlink_autopilot_type
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink_common.autopilot_type
         description: "Autopilot type to advertise for MAVLink telemetry"
         table: mavlink_autopilot_type
         default_value: "GENERIC"
         type: uint8_t
       - name: mavlink_port1_rc_chan_rate
+        condition: USE_TELEMETRY_MAVLINK
         description: "Rate of the RC channels message for MAVLink telemetry on port 1"
         field: mavlink[0].rc_channels_rate
         type: uint8_t
@@ -3390,6 +3398,7 @@ groups:
         max: 255
         default_value: 1
       - name: mavlink_port1_pos_rate
+        condition: USE_TELEMETRY_MAVLINK
         description: "Rate of the position message for MAVLink telemetry on port 1"
         field: mavlink[0].position_rate
         type: uint8_t
@@ -3397,6 +3406,7 @@ groups:
         max: 255
         default_value: 2
       - name: mavlink_port1_extra1_rate
+        condition: USE_TELEMETRY_MAVLINK
         description: "Rate of the extra1 message for MAVLink telemetry on port 1"
         field: mavlink[0].extra1_rate
         type: uint8_t
@@ -3404,6 +3414,7 @@ groups:
         max: 255
         default_value: 2
       - name: mavlink_port1_extra2_rate
+        condition: USE_TELEMETRY_MAVLINK
         description: "Rate of the extra2 message for MAVLink telemetry on port 1"
         field: mavlink[0].extra2_rate
         type: uint8_t
@@ -3411,6 +3422,7 @@ groups:
         max: 255
         default_value: 2
       - name: mavlink_port1_extra3_rate
+        condition: USE_TELEMETRY_MAVLINK
         description: "Rate of the extra3 message for MAVLink telemetry on port 1"
         field: mavlink[0].extra3_rate
         type: uint8_t
@@ -3418,6 +3430,7 @@ groups:
         max: 255
         default_value: 1
       - name: mavlink_version
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink_common.version
         description: "Version of MAVLink to use"
         type: uint8_t
@@ -3425,18 +3438,21 @@ groups:
         max: 2
         default_value: 2
       - name: mavlink_port1_min_txbuffer
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink[0].min_txbuff
         description: "Minimum percent of TX buffer space free for MAVLink port 1. Requires RADIO_STATUS messages."
         default_value: 33
         min: 0
         max: 100
       - name: mavlink_port1_radio_type
+        condition: USE_TELEMETRY_MAVLINK
         description: "MAVLink radio type for port 1. Affects RSSI and LQ reporting on OSD."
         field: mavlink[0].radio_type
         table: mavlink_radio_type
         default_value: "GENERIC"
         type: uint8_t
       - name: mavlink_sysid
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink_common.sysid
         description: "MAVLink System ID"
         type: uint8_t
@@ -3444,57 +3460,67 @@ groups:
         max: 255
         default_value: 1
       - name: mavlink_port1_high_latency
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink[0].high_latency
         description: "Enable MAVLink high-latency mode on port 1"
         type: bool
         default_value: OFF
       - name: mavlink_port2_min_txbuffer
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink[1].min_txbuff
         description: "Minimum percent of TX buffer space free for MAVLink port 2. Requires RADIO_STATUS messages."
         default_value: 33
         min: 0
         max: 100
       - name: mavlink_port2_radio_type
+        condition: USE_TELEMETRY_MAVLINK
         description: "MAVLink radio type for port 2. Affects RSSI and LQ reporting on OSD."
         field: mavlink[1].radio_type
         table: mavlink_radio_type
         default_value: "GENERIC"
         type: uint8_t
       - name: mavlink_port2_high_latency
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink[1].high_latency
         description: "Enable MAVLink high-latency mode on port 2"
         type: bool
         default_value: OFF
       - name: mavlink_port3_min_txbuffer
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink[2].min_txbuff
         description: "Minimum percent of TX buffer space free for MAVLink port 3. Requires RADIO_STATUS messages."
         default_value: 33
         min: 0
         max: 100
       - name: mavlink_port3_radio_type
+        condition: USE_TELEMETRY_MAVLINK
         description: "MAVLink radio type for port 3. Affects RSSI and LQ reporting on OSD."
         field: mavlink[2].radio_type
         table: mavlink_radio_type
         default_value: "GENERIC"
         type: uint8_t
       - name: mavlink_port3_high_latency
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink[2].high_latency
         description: "Enable MAVLink high-latency mode on port 3"
         type: bool
         default_value: OFF
       - name: mavlink_port4_min_txbuffer
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink[3].min_txbuff
         description: "Minimum percent of TX buffer space free for MAVLink port 4. Requires RADIO_STATUS messages."
         default_value: 33
         min: 0
         max: 100
       - name: mavlink_port4_radio_type
+        condition: USE_TELEMETRY_MAVLINK
         description: "MAVLink radio type for port 4. Affects RSSI and LQ reporting on OSD."
         field: mavlink[3].radio_type
         table: mavlink_radio_type
         default_value: "GENERIC"
         type: uint8_t
       - name: mavlink_port4_high_latency
+        condition: USE_TELEMETRY_MAVLINK
         field: mavlink[3].high_latency
         description: "Enable MAVLink high-latency mode on port 4"
         type: bool
@@ -4789,6 +4815,11 @@ groups:
         field: bitRateKbps
         table: dronecan_bitrate_table
         type: uint8_t
+      - name: dronecan_use_dna_server
+        description: "Enable the DNA server to manage plug and play dronecan devices"
+        type: bool
+        default_value: ON
+        field: dronecanUseDNAServer
   - name: PG_TERRAIN_CONFIG
     type: terrainConfig_t
     headers: ["terrain/terrain.h"]
