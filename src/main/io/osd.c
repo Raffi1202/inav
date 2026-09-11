@@ -86,10 +86,12 @@
 #include "fc/multifunction.h"
 #include "fc/rc_adjustments.h"
 #include "fc/rc_controls.h"
+#include "fc/rc_modes.h"
 #include "fc/settings.h"
 
 #include "flight/imu.h"
 #include "flight/mixer.h"
+#include "flight/mixer_profile.h"
 #include "flight/pid.h"
 #include "flight/power_limits.h"
 #include "flight/rth_estimator.h"
@@ -233,7 +235,7 @@ static bool osdDisplayHasCanvas;
 #define AH_MAX_PITCH_DEFAULT 20 // Specify default maximum AHI pitch value displayed (degrees)
 
 PG_REGISTER_WITH_RESET_TEMPLATE(osdConfig_t, osdConfig, PG_OSD_CONFIG, 0);
-PG_REGISTER_WITH_RESET_FN(osdLayoutsConfig_t, osdLayoutsConfig, PG_OSD_LAYOUTS_CONFIG, 3);
+PG_REGISTER_WITH_RESET_FN(osdLayoutsConfig_t, osdLayoutsConfig, PG_OSD_LAYOUTS_CONFIG, 5);
 
 /* OSD formatting helpers replacing common tfp_sprintf patterns
  * for reduced code size and CPU overhead. */
@@ -815,6 +817,24 @@ static void osdFormatCraftName(char *buff)
             buff[i] = sl_toupper((unsigned char)systemConfig()->craftName[i]);
             if (systemConfig()->craftName[i] == 0)
                 break;
+        }
+    }
+}
+
+// Name of a profile slot, upper-cased like the pilot name. An unnamed slot shows the
+// symbol and the slot number instead so the element never renders blank.
+static void osdFormatProfileName(char *buff, const char *name, char symbol, uint8_t slot)
+{
+    if (name[0] == '\0') {
+        tfp_sprintf(buff, "%c%u", symbol, slot);
+        return;
+    }
+
+    // name is MAX_PROFILE_NAME_LENGTH + 1 bytes and always terminated, so the loop copies the terminator too
+    for (int i = 0; i <= MAX_PROFILE_NAME_LENGTH; i++) {
+        buff[i] = sl_toupper((unsigned char)name[i]);
+        if (name[i] == 0) {
+            break;
         }
     }
 }
@@ -2502,7 +2522,6 @@ static bool osdDrawSingleElement(uint8_t item)
 #elif defined(USE_TERRAIN)
             range = terrainGetLastDistanceCm();
 #endif
-
             if (range < 0) {
                 buff[0] = buff[1] = buff[2] = '-';
             } else {
@@ -2511,7 +2530,21 @@ static bool osdDrawSingleElement(uint8_t item)
         }
             break;
 #endif
-
+#ifdef USE_TERRAIN
+        case OSD_TERRAIN_AGL:
+        {
+            int32_t range =  terrainGetLastDistanceCm();
+            if (range < 0) {
+                for(uint8_t i = 1; i < osdConfig()->decimals_altitude + 1; i++){
+                    buff[i] = '-';
+                }
+            } else {
+                osdFormatAltitudeSymbol(buff, range);
+            }
+            buff[0] = SYM_TERRAIN_FOLLOWING;
+            break;
+        }
+#endif
     case OSD_ONTIME:
         {
             osdFormatOnTime(buff);
@@ -2681,6 +2714,18 @@ static bool osdDrawSingleElement(uint8_t item)
 
     case OSD_PILOT_NAME:
         osdFormatPilotName(buff);
+        break;
+
+    case OSD_CONTROL_PROFILE_NAME:
+        osdFormatProfileName(buff, controlProfiles(getConfigProfile())->name, SYM_PROFILE, getConfigProfile() + 1);
+        break;
+
+    case OSD_BATTERY_PROFILE_NAME:
+        osdFormatProfileName(buff, batteryProfiles(getConfigBatteryProfile())->name, SYM_BATT_FULL, getConfigBatteryProfile() + 1);
+        break;
+
+    case OSD_MIXER_PROFILE_NAME:
+        osdFormatProfileName(buff, mixerProfiles(getConfigMixerProfile())->name, 'M', getConfigMixerProfile() + 1);
         break;
 
     case OSD_PILOT_LOGO:
@@ -6398,6 +6443,23 @@ textAttributes_t osdGetSystemMessage(char *buff, size_t buff_size, bool isCenter
                     }
                 }
             }
+#ifdef USE_CMS
+            // In-flight CMS menu messages - shown alongside any active NAV messages
+            // (RTH, WP, etc.) via OSD message rotation. Uses a dedicated buffer
+            // to avoid overwriting messageBuf which may contain NAV state messages.
+            {
+                uint32_t menuCountdownMs = cmsGetOpenCountdownRemaining();
+                if (menuCountdownMs > 0) {
+                    static char cmsMenuBuf[16];
+                    unsigned sec = menuCountdownMs / 1000;
+                    unsigned dec = (menuCountdownMs % 1000) / 100;
+                    tfp_sprintf(cmsMenuBuf, "MENU IN %u.%u", sec, dec);
+                    ADD_MSG(cmsMenuBuf);
+                } else if (IS_RC_MODE_ACTIVE(BOXINFLIGHTMENU) && !cmsInMenu && !cmsIsMenuSwitchLatched()) {
+                    ADD_MSG(OSD_MESSAGE_STR(OSD_MSG_MENU_NAV_REQ));
+                }
+            }
+#endif
         } else if (ARMING_FLAG(ARMING_DISABLED_ALL_FLAGS)) {    /* ADDS MAXIMUM OF 2 MESSAGES TO TOTAL */
             unsigned invalidIndex;
 
@@ -6452,7 +6514,7 @@ textAttributes_t osdGetSystemMessage(char *buff, size_t buff_size, bool isCenter
 
         if (messageCount > 0) {
             message = messages[OSD_ALTERNATING_CHOICES(systemMessageCycleTime(messageCount, messages), messageCount)];
-            if (message == failsafeInfoMessage) {
+            if (message == failsafeInfoMessage || message == OSD_MESSAGE_STR(OSD_MSG_MENU_NAV_REQ)) {
                 // failsafeInfoMessage is not useful for recovering
                 // a lost model, but might help avoiding a crash.
                 // Blink to grab user attention.
