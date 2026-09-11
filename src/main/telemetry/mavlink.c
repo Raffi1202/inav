@@ -1016,6 +1016,22 @@ void processMAVLinkTelemetry(timeUs_t currentTimeUs)
     }
 }
 
+// Static state for MISSION UPLOAD transaction (starting with MISSION_COUNT)
+static int incomingMissionWpCount = 0;
+static int incomingMissionWpSequence = 0;
+
+// A mission edit (upload or clear) is refused while the WP mission is being
+// executed: WP mode active, the mission's own RTH leg running (the
+// land/loiter decision at home reads the live list), or the on-the-fly
+// mission planner writing the same list. This matches the MSP policy from
+// #10273 combined with the updateWpMissionPlanner() guard. The ARMED term
+// keeps the disarmed path provably unchanged.
+static bool mavlinkMissionEditBlocked(void)
+{
+    return ARMING_FLAG(ARMED) &&
+        (FLIGHT_MODE(NAV_WP_MODE) || isWaypointMissionRTHActive() || isWpMissionPlannerActive());
+}
+
 static bool handleIncoming_MISSION_CLEAR_ALL(void)
 {
     mavlink_mission_clear_all_t msg;
@@ -1023,6 +1039,16 @@ static bool handleIncoming_MISSION_CLEAR_ALL(void)
 
     // Check if this message is for us
     if (msg.target_system == mavSystemId) {
+        // Clearing the mission is not allowed while it is being executed,
+        // consistent with the policy enforced by setWaypoint() for uploads
+        if (mavlinkMissionEditBlocked()) {
+            mavlink_msg_mission_ack_pack(mavSystemId, mavComponentId, &mavSendMsg, mavRecvMsg.sysid, mavRecvMsg.compid, MAV_MISSION_ERROR, MAV_MISSION_TYPE_MISSION, 0);
+            mavlinkSendMessage();
+            return true;
+        }
+        // A clear ends any upload transaction that may be in progress
+        incomingMissionWpCount = 0;
+        incomingMissionWpSequence = 0;
         resetWaypointList();
         mavlink_msg_mission_ack_pack(mavSystemId, mavComponentId, &mavSendMsg, mavRecvMsg.sysid, mavRecvMsg.compid, MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
         mavlinkSendMessage();
@@ -1032,10 +1058,6 @@ static bool handleIncoming_MISSION_CLEAR_ALL(void)
     return false;
 }
 
-// Static state for MISSION UPLOAD transaction (starting with MISSION_COUNT)
-static int incomingMissionWpCount = 0;
-static int incomingMissionWpSequence = 0;
-
 static bool handleIncoming_MISSION_COUNT(void)
 {
     mavlink_mission_count_t msg;
@@ -1044,18 +1066,36 @@ static bool handleIncoming_MISSION_COUNT(void)
     // Check if this message is for us
     if (msg.target_system == mavSystemId) {
         if (msg.count <= NAV_MAX_WAYPOINTS) {
+            // Reject the transfer up front while the mission is being
+            // executed - every MISSION_ITEM would be refused anyway (see
+            // handleIncoming_MISSION_ITEM). Also drop any half-open
+            // transaction so a stray item cannot resume it later.
+            if (mavlinkMissionEditBlocked()) {
+                incomingMissionWpCount = 0;
+                incomingMissionWpSequence = 0;
+                mavlink_msg_mission_ack_pack(mavSystemId, mavComponentId, &mavSendMsg, mavRecvMsg.sysid, mavRecvMsg.compid, MAV_MISSION_ERROR, MAV_MISSION_TYPE_MISSION, 0);
+                mavlinkSendMessage();
+                return true;
+            }
+            // Per the mission protocol, count == 0 clears the mission and is
+            // acknowledged directly - there are no items to request.
+            if (msg.count == 0) {
+                incomingMissionWpCount = 0;
+                incomingMissionWpSequence = 0;
+                resetWaypointList();
+                mavlink_msg_mission_ack_pack(mavSystemId, mavComponentId, &mavSendMsg, mavRecvMsg.sysid, mavRecvMsg.compid, MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
+                mavlinkSendMessage();
+                return true;
+            }
             incomingMissionWpCount = msg.count; // We need to know how many items to request
             incomingMissionWpSequence = 0;
             mavlink_msg_mission_request_pack(mavSystemId, mavComponentId, &mavSendMsg, mavRecvMsg.sysid, mavRecvMsg.compid, incomingMissionWpSequence, MAV_MISSION_TYPE_MISSION);
             mavlinkSendMessage();
             return true;
         }
-        else if (ARMING_FLAG(ARMED)) {
-            mavlink_msg_mission_ack_pack(mavSystemId, mavComponentId, &mavSendMsg, mavRecvMsg.sysid, mavRecvMsg.compid, MAV_MISSION_ERROR, MAV_MISSION_TYPE_MISSION, 0);
-            mavlinkSendMessage();
-            return true;
-        }
         else {
+            // Oversized mission: NO_SPACE is the accurate diagnostic in
+            // both armed and disarmed state
             mavlink_msg_mission_ack_pack(mavSystemId, mavComponentId, &mavSendMsg, mavRecvMsg.sysid, mavRecvMsg.compid, MAV_MISSION_NO_SPACE, MAV_MISSION_TYPE_MISSION, 0);
             mavlinkSendMessage();
             return true;
@@ -1075,7 +1115,12 @@ static bool handleIncoming_MISSION_ITEM(void)
         // Check supported values first
         if (ARMING_FLAG(ARMED)) {
             // Legacy Mission Planner BS for GUIDED
-            if (isGCSValid() && (msg.command == MAV_CMD_NAV_WAYPOINT) && (msg.current == 2)) {
+            if ((msg.command == MAV_CMD_NAV_WAYPOINT) && (msg.current == 2)) {
+                if (!isGCSValid()) {
+                    mavlink_msg_mission_ack_pack(mavSystemId, mavComponentId, &mavSendMsg, mavRecvMsg.sysid, mavRecvMsg.compid, MAV_MISSION_ERROR, MAV_MISSION_TYPE_MISSION, 0);
+                    mavlinkSendMessage();
+                    return true;
+                }
                 if (!(msg.frame == MAV_FRAME_GLOBAL)) {
                     mavlink_msg_mission_ack_pack(mavSystemId, mavComponentId, &mavSendMsg,
                         mavRecvMsg.sysid, mavRecvMsg.compid,
@@ -1086,7 +1131,7 @@ static bool handleIncoming_MISSION_ITEM(void)
 
                 navWaypoint_t wp;
                 wp.action = NAV_WP_ACTION_WAYPOINT;
-                wp.lat = (int32_t)(msg.x * 1e7f); 
+                wp.lat = (int32_t)(msg.x * 1e7f);
                 wp.lon = (int32_t)(msg.y * 1e7f);
                 wp.alt = (int32_t)(msg.z * 100.0f);
                 wp.p1 = 0;
@@ -1099,7 +1144,28 @@ static bool handleIncoming_MISSION_ITEM(void)
                     MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
                 mavlinkSendMessage();
                 return true;
-            } else {
+            }
+
+            // Mission upload while the mission is being executed is not
+            // allowed. Otherwise fall through: uploading while merely armed
+            // is permitted, matching the MSP policy in setWaypoint() (see
+            // PR #10273). setWaypoint() enforces the same rule but returns
+            // void, so this check is what turns a silent drop into a proper
+            // NACK. The half-open transaction is dropped so a stray item
+            // cannot resume it after the mission finishes.
+            if (mavlinkMissionEditBlocked()) {
+                incomingMissionWpCount = 0;
+                incomingMissionWpSequence = 0;
+                mavlink_msg_mission_ack_pack(mavSystemId, mavComponentId, &mavSendMsg, mavRecvMsg.sysid, mavRecvMsg.compid, MAV_MISSION_ERROR, MAV_MISSION_TYPE_MISSION, 0);
+                mavlinkSendMessage();
+                return true;
+            }
+
+            // While armed, only accept items that belong to a transfer
+            // started by MISSION_COUNT. Without this, a single stray or
+            // duplicated MISSION_ITEM could rewrite the mission in flight
+            // (the disarmed path keeps its historical behaviour).
+            if (!(incomingMissionWpCount > 0 && incomingMissionWpSequence < incomingMissionWpCount)) {
                 mavlink_msg_mission_ack_pack(mavSystemId, mavComponentId, &mavSendMsg, mavRecvMsg.sysid, mavRecvMsg.compid, MAV_MISSION_ERROR, MAV_MISSION_TYPE_MISSION, 0);
                 mavlinkSendMessage();
                 return true;
