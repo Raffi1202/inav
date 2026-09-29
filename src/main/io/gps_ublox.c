@@ -114,6 +114,12 @@ static bool _new_position;
 // do we have new speed information?
 static bool _new_speed;
 
+// tAcc stays around 20 s while the leap seconds are unresolved, validTime alone does not exclude that
+#define UBX_PVT_FIX_TIME_MAX_TACC_NS        1000000
+// validTime and the leap seconds can still change right after start, require a stable run of good epochs
+#define UBX_PVT_FIX_TIME_STABLE_EPOCHS      5
+static uint8_t fixTimeGoodEpochs;
+
 // Need this to determine if Galileo capable only
 static struct {
     uint8_t supported;
@@ -626,6 +632,29 @@ static uint8_t gpsDecodeHardwareVersion(const char * szBuf, unsigned nBufSize)
     return UBX_HW_VERSION_UNKNOWN;
 }
 
+static bool isPvtFixTimeExact(const ubx_nav_pvt *pvt, uint16_t payloadLength, uint8_t fixType)
+{
+    return payloadLength >= sizeof(ubx_nav_pvt)
+        && UBX_VALID_GPS_DATE_TIME(pvt->valid)
+        && UBX_VALID_GPS_FULLY_RESOLVED(pvt->valid)
+        && (!UBX_PVT_CONFIRMED_AVAILABLE(pvt->flags2) || UBX_PVT_CONFIRMED_TIME(pvt->flags2))
+        && fixType == GPS_FIX_3D
+        && pvt->tAcc <= UBX_PVT_FIX_TIME_MAX_TACC_NS;
+}
+
+// NAV-PVT hour..sec are rounded to 1/100 s, nano (-5..+995 ms) is the signed offset from them
+static bool getPvtTimeOfDayMs(const ubx_nav_pvt *pvt, uint32_t *timeOfDayMs)
+{
+    const int32_t nanoMs = pvt->nano >= 0 ? (pvt->nano + 500000) / 1000000 : -((500000 - pvt->nano) / 1000000);
+    const int32_t ms = ((pvt->hour * 60 + pvt->min) * 60 + pvt->sec) * 1000 + nanoMs;
+    // outside hour..sec's day we cannot tell whether that day had a leap second
+    if (ms < 0 || (ms >= 86400000 && pvt->sec < 60)) {
+        return false;
+    }
+    *timeOfDayMs = ms;
+    return true;
+}
+
 static bool gpsParseFrameUBLOX(void)
 {
     switch (_msg_id) {
@@ -638,6 +667,7 @@ static bool gpsParseFrameUBLOX(void)
         gpsSolDRV.epv = gpsConstrainEPE(_buffer.posllh.vertical_accuracy / 10);
         gpsSolDRV.flags.validEPE = true;
         gpsSolDRV.flags.validEllipsoidAltitude = true;
+        gpsSolDRV.flags.validFixTime = false;  // fixTimeOfDayMs belongs to the last NAV-PVT, not to this position
         if (next_fix_type != GPS_NO_FIX)
             gpsSolDRV.fixType = next_fix_type;
         _new_position = true;
@@ -684,6 +714,9 @@ static bool gpsParseFrameUBLOX(void)
         }
         break;
     case MSG_PVT:
+        if (_class != CLASS_NAV) {
+            break;
+        }
         {
             static int pvtCount = 0;
             DEBUG_SET(DEBUG_GPS, 0, pvtCount++);
@@ -714,6 +747,12 @@ static bool gpsParseFrameUBLOX(void)
         gpsSolDRV.flags.validSpeedAccuracy = true;
         gpsSolDRV.flags.validHeadingAccuracy = true;
 
+        if (isPvtFixTimeExact(&_buffer.pvt, _payload_length, next_fix_type)) {
+            fixTimeGoodEpochs = MIN(fixTimeGoodEpochs + 1, UBX_PVT_FIX_TIME_STABLE_EPOCHS);
+        } else {
+            fixTimeGoodEpochs = 0;
+        }
+
         if (UBX_VALID_GPS_DATE_TIME(_buffer.pvt.valid)) {
             gpsSolDRV.time.year = _buffer.pvt.year;
             gpsSolDRV.time.month = _buffer.pvt.month;
@@ -724,8 +763,11 @@ static bool gpsParseFrameUBLOX(void)
             gpsSolDRV.time.millis = (uint16_t)(MAX(0, _buffer.pvt.nano) / (1000*1000));
 
             gpsSolDRV.flags.validTime = true;
+            gpsSolDRV.flags.validFixTime = fixTimeGoodEpochs >= UBX_PVT_FIX_TIME_STABLE_EPOCHS
+                && getPvtTimeOfDayMs(&_buffer.pvt, &gpsSolDRV.fixTimeOfDayMs);
         } else {
             gpsSolDRV.flags.validTime = false;
+            gpsSolDRV.flags.validFixTime = false;
         }
 
         _new_position = true;
@@ -860,7 +902,7 @@ static bool gpsParseFrameUBLOX(void)
     return false;
 }
 
-static bool gpsNewFrameUBLOX(uint8_t data)
+STATIC_UNIT_TESTED bool gpsNewFrameUBLOX(uint8_t data)
 {
     bool parsed = false;
 
@@ -1319,6 +1361,8 @@ void gpsRestartUBLOX(void)
 		satelites[i].svId = 0xFF;
 		satelites[i].gnssId = 0xFF;
 	}
+
+    fixTimeGoodEpochs = 0;
 
     ptSemaphoreInit(semNewDataReady);
     ptRestart(ptGetHandle(gpsProtocolReceiverThread));

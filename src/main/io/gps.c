@@ -264,6 +264,7 @@ void processDisableGPSFix(void)
         gpsSol.flags.validVelD = false;  
         gpsSol.flags.validEPE = false;
         gpsSol.flags.validTime = false;
+        gpsSol.flags.validFixTime = false;
         gpsSol.flags.validEllipsoidAltitude = false;
         gpsSol.flags.validSpeedAccuracy = false;
         gpsSol.flags.validHeadingAccuracy = false;
@@ -313,6 +314,7 @@ void updateEstimatedGPSFix(void)
     gpsSol.flags.validVelD = false;  //do not provide velocity.z
     gpsSol.flags.validEPE = true;
     gpsSol.flags.validTime = false;
+    gpsSol.flags.validFixTime = false;
 
     float speed = pidProfile()->fixedWingReferenceAirspeed;
 
@@ -440,6 +442,7 @@ static void gpsResetSolution(gpsSolutionData_t* gpsSol)
     gpsSol->flags.validVelD = false;
     gpsSol->flags.validEPE = false;
     gpsSol->flags.validTime = false;
+    gpsSol->flags.validFixTime = false;
     gpsSol->flags.validEllipsoidAltitude = false;
     gpsSol->flags.validSpeedAccuracy = false;
     gpsSol->flags.validHeadingAccuracy = false;

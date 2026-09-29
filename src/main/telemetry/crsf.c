@@ -80,6 +80,8 @@
 #define CRSF_MSP_BUFFER_SIZE 96
 #define CRSF_MSP_LENGTH_OFFSET 1
 
+#define CRSF_FRAME_GPS_TIME_TAIL_PAYLOAD_SIZE 5
+
 static uint8_t crsfCrc;
 static bool crsfTelemetryEnabled;
 static bool deviceInfoReplyPending;
@@ -231,11 +233,20 @@ uint16_t    Groundspeed ( km/h / 10 )
 uint16_t    GPS heading ( degree / 100 )
 uint16      Altitude ( meter ­1000m offset )
 uint8_t     Satellites in use ( counter )
+Optional (extension, not part of the CRSF spec), only when the UTC time of this fix is exact
+(u-blox NAV-PVT: date/time valid, fully resolved, confirmed if available, 3D fix, tAcc <= 1 ms,
+all of it for 5 epochs in a row) and crsf_use_legacy_baro_packet is OFF:
+uint32_t    UTC time of day of this fix ( ms, rounded to the nearest ms )
+uint8_t     Fix type ( always 2 = 3D while this tail is present )
 */
 static void crsfFrameGps(sbuf_t *dst)
 {
+    // UTC time of this fix in the same frame; a separate frame cannot be paired with it on the ground
+    const bool hasFixTime = gpsSol.flags.validFixTime && gpsSol.time.year != 0
+        && !telemetryConfig()->crsf_use_legacy_baro_packet;
+    const uint8_t payloadSize = CRSF_FRAME_GPS_PAYLOAD_SIZE + (hasFixTime ? CRSF_FRAME_GPS_TIME_TAIL_PAYLOAD_SIZE : 0);
     // use sbufWrite since CRC does not include frame length
-    sbufWriteU8(dst, CRSF_FRAME_GPS_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
+    sbufWriteU8(dst, payloadSize + CRSF_FRAME_LENGTH_TYPE_CRC);
     crsfSerialize8(dst, CRSF_FRAMETYPE_GPS);
     crsfSerialize32(dst, gpsSol.llh.lat); // CRSF and betaflight use same units for degrees
     crsfSerialize32(dst, gpsSol.llh.lon);
@@ -243,6 +254,10 @@ static void crsfFrameGps(sbuf_t *dst)
     crsfSerialize16(dst, DECIDEGREES_TO_CENTIDEGREES(gpsSol.groundCourse)); // gpsSol.groundCourse is 0.1 degrees, need 0.01 deg
     crsfSerialize16(dst, (uint16_t)( (telemetryConfig()->crsf_use_legacy_baro_packet ? getEstimatedActualPosition(Z) : gpsSol.llh.alt ) / 100 + 1000) );
     crsfSerialize8(dst, gpsSol.numSat);
+    if (hasFixTime) {
+        crsfSerialize32(dst, gpsSol.fixTimeOfDayMs);
+        crsfSerialize8(dst, gpsSol.fixType);
+    }
 }
 
 /*

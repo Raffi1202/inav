@@ -124,6 +124,7 @@ void dronecanGPSReceiveGNSSFix(const struct uavcan_equipment_gnss_Fix * pgnssFix
     // gpsSolDRV.time.millis  = 0;
 
     gpsSolDRV.flags.validTime = 0; //(pkt->fixType >= 3);
+    gpsSolDRV.flags.validFixTime = false;
 
     gpsProcessNewDriverData();
     newDataReady = true;
@@ -173,6 +174,7 @@ void dronecanGPSReceiveGNSSFix2(const struct uavcan_equipment_gnss_Fix2 * pgnssF
     // gpsSolDRV.time.millis  = 0;
 
     gpsSolDRV.flags.validTime = 0; //(pkt->fixType >= 3);
+    gpsSolDRV.flags.validFixTime = false;
 
     gpsProcessNewDriverData();
     newDataReady = true;
