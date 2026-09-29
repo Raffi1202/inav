@@ -234,9 +234,10 @@ uint16_t    GPS heading ( degree / 100 )
 uint16      Altitude ( meter ­1000m offset )
 uint8_t     Satellites in use ( counter )
 Optional (extension, not part of the CRSF spec), only when the UTC time of this fix is exact
-(u-blox NAV-PVT: date/time valid, fully resolved, confirmed if available) and crsf_use_legacy_baro_packet is OFF:
+(u-blox NAV-PVT: date/time valid, fully resolved, confirmed if available, 3D fix, tAcc <= 1 ms,
+all of it for 5 epochs in a row) and crsf_use_legacy_baro_packet is OFF:
 uint32_t    UTC time of day of this fix ( ms, rounded to the nearest ms )
-uint8_t     Fix type ( 0 none, 1 2D, 2 3D )
+uint8_t     Fix type ( always 2 = 3D while this tail is present )
 */
 static void crsfFrameGps(sbuf_t *dst)
 {

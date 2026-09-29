@@ -157,6 +157,9 @@ set_property(SOURCE gps_ublox_unittest.cc PROPERTY definitions GPS_UBLOX_UNIT_TE
 
 set_property(SOURCE gps_ublox_pvt_unittest.cc PROPERTY depends "io/gps_ublox.c" "io/gps_ublox_utils.c")
 
+set_property(SOURCE telemetry_crsf_unittest.cc PROPERTY depends "telemetry/crsf.c" "common/crc.c" "common/streambuf.c")
+set_property(SOURCE telemetry_crsf_unittest.cc PROPERTY definitions USE_SERIALRX_CRSF USE_TELEMETRY_CRSF)
+
 set_property(SOURCE gps_null_port_unittest.cc PROPERTY depends "io/gps.c")
 set_property(SOURCE gps_null_port_unittest.cc PROPERTY definitions GPS_NULL_PORT_UNIT_TEST USE_GPS_PROTO_UBLOX)
 

@@ -84,13 +84,11 @@ char *strnstr(const char *s, const char *find, size_t slen)
 }
 
 #define NAV_PVT_PAYLOAD_SIZE 92
+#define STABLE_EPOCHS 5
 
-static bool feedPvt(uint8_t msgClass, uint16_t payloadLength, const ubx_nav_pvt *pvt)
+static bool feedUbx(uint8_t msgClass, uint8_t msgId, const uint8_t *payload, uint16_t payloadLength)
 {
-    uint8_t payload[NAV_PVT_PAYLOAD_SIZE] = { 0 };
-    memcpy(payload, pvt, sizeof(*pvt));
-
-    const uint8_t header[] = { PREAMBLE1, PREAMBLE2, msgClass, MSG_PVT,
+    const uint8_t header[] = { PREAMBLE1, PREAMBLE2, msgClass, msgId,
         (uint8_t)(payloadLength & 0xFF), (uint8_t)(payloadLength >> 8) };
     uint8_t ckA = 0;
     uint8_t ckB = 0;
@@ -113,7 +111,12 @@ static bool feedPvt(uint8_t msgClass, uint16_t payloadLength, const ubx_nav_pvt 
     return parsed;
 }
 
-#define STABLE_EPOCHS 5
+static bool feedPvt(uint8_t msgClass, uint16_t payloadLength, const ubx_nav_pvt *pvt)
+{
+    uint8_t payload[NAV_PVT_PAYLOAD_SIZE] = { 0 };
+    memcpy(payload, pvt, sizeof(*pvt));
+    return feedUbx(msgClass, MSG_PVT, payload, payloadLength);
+}
 
 static bool feedPvtEpochs(uint8_t msgClass, uint16_t payloadLength, const ubx_nav_pvt *pvt, int count)
 {
@@ -173,6 +176,15 @@ protected:
         feedPvtEpochs(msgClass, payloadLength, pvt, STABLE_EPOCHS + 1);
         EXPECT_FALSE(gpsSolDRV.flags.validFixTime);
     }
+
+    void expectSingleEpoch(const ubx_nav_pvt *pvt, bool validFixTime, uint32_t expectedTimeOfDayMs = 0)
+    {
+        EXPECT_TRUE(feedPvt(CLASS_NAV, NAV_PVT_PAYLOAD_SIZE, pvt));
+        EXPECT_EQ(validFixTime, gpsSolDRV.flags.validFixTime);
+        if (validFixTime) {
+            EXPECT_EQ(expectedTimeOfDayMs, gpsSolDRV.fixTimeOfDayMs);
+        }
+    }
 };
 
 TEST_F(GpsUbloxPvtTest, PositiveNanoRoundsToNearestMs)
@@ -195,10 +207,50 @@ TEST_F(GpsUbloxPvtTest, NegativeNanoGivesPreviousSecond)
     expectFixTime(&pvt, timeOfDayMs(10, 20, 30, 997));
 }
 
-TEST_F(GpsUbloxPvtTest, NegativeNanoAtMidnightWrapsToPreviousDay)
+TEST_F(GpsUbloxPvtTest, NanoRoundsHalfAwayFromZero)
 {
-    const ubx_nav_pvt pvt = validPvt(0, 0, 0, -3000000);
-    expectFixTime(&pvt, 86399997u);
+    ubx_nav_pvt pvt = validPvt(10, 20, 31, 0);
+    expectFixTime(&pvt, timeOfDayMs(10, 20, 31, 0));
+
+    pvt.nano = -2600000;    // round toward zero would give .998
+    expectSingleEpoch(&pvt, true, timeOfDayMs(10, 20, 30, 997));
+
+    pvt.nano = -500000;
+    expectSingleEpoch(&pvt, true, timeOfDayMs(10, 20, 30, 999));
+
+    pvt.nano = -499999;
+    expectSingleEpoch(&pvt, true, timeOfDayMs(10, 20, 31, 0));
+
+    pvt.nano = 499999;
+    expectSingleEpoch(&pvt, true, timeOfDayMs(10, 20, 31, 0));
+
+    pvt.nano = 500000;
+    expectSingleEpoch(&pvt, true, timeOfDayMs(10, 20, 31, 1));
+}
+
+TEST_F(GpsUbloxPvtTest, TimeBeforeTheReportedDayIsNotExact)
+{
+    const ubx_nav_pvt pvt = validPvt(10, 20, 30, 0);
+    expectFixTime(&pvt, timeOfDayMs(10, 20, 30, 0));
+
+    // 23:59:59.997, or 23:59:60.997 after a leap second, of the previous day
+    const ubx_nav_pvt midnight = validPvt(0, 0, 0, -3000000);
+    expectSingleEpoch(&midnight, false);
+
+    // a representation limit, not a receiver problem: the stable run continues
+    expectSingleEpoch(&pvt, true, timeOfDayMs(10, 20, 30, 0));
+}
+
+TEST_F(GpsUbloxPvtTest, TimeAfterTheReportedDayIsNotExact)
+{
+    const ubx_nav_pvt pvt = validPvt(10, 20, 30, 0);
+    expectFixTime(&pvt, timeOfDayMs(10, 20, 30, 0));
+
+    const ubx_nav_pvt pastMidnight = validPvt(23, 59, 59, 999600000);
+    expectSingleEpoch(&pastMidnight, false);
+
+    const ubx_nav_pvt beforeMidnight = validPvt(23, 59, 59, 999400000);
+    expectSingleEpoch(&beforeMidnight, true, 86399999u);
 }
 
 TEST_F(GpsUbloxPvtTest, LeapSecond)
@@ -208,6 +260,9 @@ TEST_F(GpsUbloxPvtTest, LeapSecond)
 
     pvt.nano = 995000000;
     expectFixTime(&pvt, 86400995u);
+
+    pvt.nano = -3000000;
+    expectFixTime(&pvt, 86399997u);
 }
 
 TEST_F(GpsUbloxPvtTest, NotFullyResolved)
@@ -229,8 +284,7 @@ TEST_F(GpsUbloxPvtTest, ConfirmedTime)
     expectFixTime(&pvt, timeOfDayMs(10, 20, 30, 0));
 
     pvt.flags2 = 0x20;
-    EXPECT_TRUE(feedPvt(CLASS_NAV, NAV_PVT_PAYLOAD_SIZE, &pvt));
-    EXPECT_FALSE(gpsSolDRV.flags.validFixTime);
+    expectSingleEpoch(&pvt, false);
 
     pvt.flags2 = 0x00;  // confirmation not available
     expectFixTime(&pvt, timeOfDayMs(10, 20, 30, 0));
@@ -276,6 +330,31 @@ TEST_F(GpsUbloxPvtTest, DateOrTimeNotValid)
     EXPECT_FALSE(gpsSolDRV.flags.validTime);
 }
 
+TEST_F(GpsUbloxPvtTest, InvalidTimeClearsFixTime)
+{
+    ubx_nav_pvt pvt = validPvt(10, 20, 30, 0);
+    expectFixTime(&pvt, timeOfDayMs(10, 20, 30, 0));
+
+    pvt.valid = 0;
+    expectSingleEpoch(&pvt, false);
+    EXPECT_FALSE(gpsSolDRV.flags.validTime);
+}
+
+TEST_F(GpsUbloxPvtTest, PosllhClearsFixTime)
+{
+    const ubx_nav_pvt pvt = validPvt(10, 20, 30, 0);
+    expectFixTime(&pvt, timeOfDayMs(10, 20, 30, 0));
+
+    ubx_nav_posllh posllh;
+    memset(&posllh, 0, sizeof(posllh));
+    posllh.latitude = 470001000;
+    posllh.longitude = 80001000;
+    ASSERT_EQ(28u, sizeof(posllh));
+    feedUbx(CLASS_NAV, MSG_POSLLH, (const uint8_t *)&posllh, sizeof(posllh));
+    EXPECT_EQ(470001000, gpsSolDRV.llh.lat);
+    EXPECT_FALSE(gpsSolDRV.flags.validFixTime);
+}
+
 TEST_F(GpsUbloxPvtTest, Requires3dFix)
 {
     ubx_nav_pvt pvt = validPvt(10, 20, 30, 0);
@@ -301,8 +380,7 @@ TEST_F(GpsUbloxPvtTest, RequiresTimeAccuracy)
     expectFixTime(&pvt, timeOfDayMs(10, 20, 30, 0));
 
     pvt.tAcc = 0xFFFFFFFF;  // largest U4, far off like unresolved leap seconds
-    EXPECT_TRUE(feedPvt(CLASS_NAV, NAV_PVT_PAYLOAD_SIZE, &pvt));
-    EXPECT_FALSE(gpsSolDRV.flags.validFixTime);
+    expectSingleEpoch(&pvt, false);
 
     pvt.tAcc = 500000;      // 500 us
     expectFixTime(&pvt, timeOfDayMs(10, 20, 30, 0));
@@ -316,12 +394,14 @@ TEST_F(GpsUbloxPvtTest, RequiresStableRunOfGoodEpochs)
         EXPECT_TRUE(feedPvt(CLASS_NAV, NAV_PVT_PAYLOAD_SIZE, &pvt));
         EXPECT_EQ(epoch == STABLE_EPOCHS, gpsSolDRV.flags.validFixTime) << "epoch " << epoch;
     }
-    EXPECT_TRUE(feedPvtEpochs(CLASS_NAV, NAV_PVT_PAYLOAD_SIZE, &pvt, 300));   // counter saturates
-    EXPECT_TRUE(gpsSolDRV.flags.validFixTime);
+    // 5 + 251 = 256 good epochs: a counter without saturation would wrap to 0 on the last one
+    for (int epoch = STABLE_EPOCHS + 1; epoch <= 256; epoch++) {
+        EXPECT_TRUE(feedPvt(CLASS_NAV, NAV_PVT_PAYLOAD_SIZE, &pvt));
+        ASSERT_TRUE(gpsSolDRV.flags.validFixTime) << "epoch " << epoch;
+    }
 
     pvt.tAcc = 2000000;     // one bad epoch resets the run
-    EXPECT_TRUE(feedPvt(CLASS_NAV, NAV_PVT_PAYLOAD_SIZE, &pvt));
-    EXPECT_FALSE(gpsSolDRV.flags.validFixTime);
+    expectSingleEpoch(&pvt, false);
 
     pvt.tAcc = 500000;
     for (int epoch = 1; epoch <= STABLE_EPOCHS; epoch++) {

@@ -643,14 +643,16 @@ static bool isPvtFixTimeExact(const ubx_nav_pvt *pvt, uint16_t payloadLength, ui
 }
 
 // NAV-PVT hour..sec are rounded to 1/100 s, nano (-5..+995 ms) is the signed offset from them
-static uint32_t ubloxPvtTimeOfDayMs(const ubx_nav_pvt *pvt)
+static bool getPvtTimeOfDayMs(const ubx_nav_pvt *pvt, uint32_t *timeOfDayMs)
 {
     const int32_t nanoMs = pvt->nano >= 0 ? (pvt->nano + 500000) / 1000000 : -((500000 - pvt->nano) / 1000000);
-    int32_t timeOfDayMs = ((pvt->hour * 60 + pvt->min) * 60 + pvt->sec) * 1000 + nanoMs;
-    if (timeOfDayMs < 0) {
-        timeOfDayMs += 86400000;
+    const int32_t ms = ((pvt->hour * 60 + pvt->min) * 60 + pvt->sec) * 1000 + nanoMs;
+    // outside hour..sec's day we cannot tell whether that day had a leap second
+    if (ms < 0 || (ms >= 86400000 && pvt->sec < 60)) {
+        return false;
     }
-    return timeOfDayMs;
+    *timeOfDayMs = ms;
+    return true;
 }
 
 static bool gpsParseFrameUBLOX(void)
@@ -665,7 +667,7 @@ static bool gpsParseFrameUBLOX(void)
         gpsSolDRV.epv = gpsConstrainEPE(_buffer.posllh.vertical_accuracy / 10);
         gpsSolDRV.flags.validEPE = true;
         gpsSolDRV.flags.validEllipsoidAltitude = true;
-        gpsSolDRV.flags.validFixTime = false;  // time comes from NAV-TIMEUTC of an earlier epoch
+        gpsSolDRV.flags.validFixTime = false;  // fixTimeOfDayMs belongs to the last NAV-PVT, not to this position
         if (next_fix_type != GPS_NO_FIX)
             gpsSolDRV.fixType = next_fix_type;
         _new_position = true;
@@ -761,8 +763,8 @@ static bool gpsParseFrameUBLOX(void)
             gpsSolDRV.time.millis = (uint16_t)(MAX(0, _buffer.pvt.nano) / (1000*1000));
 
             gpsSolDRV.flags.validTime = true;
-            gpsSolDRV.flags.validFixTime = fixTimeGoodEpochs >= UBX_PVT_FIX_TIME_STABLE_EPOCHS;
-            gpsSolDRV.fixTimeOfDayMs = ubloxPvtTimeOfDayMs(&_buffer.pvt);
+            gpsSolDRV.flags.validFixTime = fixTimeGoodEpochs >= UBX_PVT_FIX_TIME_STABLE_EPOCHS
+                && getPvtTimeOfDayMs(&_buffer.pvt, &gpsSolDRV.fixTimeOfDayMs);
         } else {
             gpsSolDRV.flags.validTime = false;
             gpsSolDRV.flags.validFixTime = false;

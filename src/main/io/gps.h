@@ -156,7 +156,7 @@ typedef struct gpsSolutionData_s {
     uint16_t hdop;  // generic HDOP value (*HDOP_SCALE)
 
     dateTime_t time; // GPS time in UTC
-    uint32_t fixTimeOfDayMs; // UTC time of day of this fix in ms, rounded, valid when flags.validFixTime
+    uint32_t fixTimeOfDayMs; // UTC time of day of the same measurement as llh in ms, valid when flags.validFixTime
 
 } gpsSolutionData_t;
 
