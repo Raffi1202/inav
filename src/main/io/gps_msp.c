@@ -111,6 +111,7 @@ void mspGPSReceiveNewData(const uint8_t * bufferPtr, unsigned int dataSize)
     gpsSolDRV.time.millis  = 0;
 
     gpsSolDRV.flags.validTime = (pkt->fixType >= 3);
+    gpsSolDRV.flags.validFixTime = false;  // MSP2_SENSOR_GPS is accepted with any gps_provider
 
     gpsProcessNewDriverData();
     newDataReady = true;

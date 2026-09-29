@@ -80,6 +80,7 @@ void gpsFakeSet(
     gpsSolDRV.flags.validVelNE = true;
     gpsSolDRV.flags.validVelD = true;
     gpsSolDRV.flags.validEPE = true;
+    gpsSolDRV.flags.validFixTime = false;
     
     if (time) {
         struct tm* gTime = gmtime(&time);

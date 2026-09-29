@@ -61,6 +61,9 @@ STATIC_ASSERT(MAX_UBLOX_PAYLOAD_SIZE >= 256, ubx_size_too_small);
 #define UBX_VALID_GPS_DATE(valid) (valid & 1 << 0)
 #define UBX_VALID_GPS_TIME(valid) (valid & 1 << 1)
 #define UBX_VALID_GPS_DATE_TIME(valid) (UBX_VALID_GPS_DATE(valid) && UBX_VALID_GPS_TIME(valid))
+#define UBX_VALID_GPS_FULLY_RESOLVED(valid) (valid & 1 << 2)
+#define UBX_PVT_CONFIRMED_AVAILABLE(flags2) (flags2 & 1 << 5)
+#define UBX_PVT_CONFIRMED_TIME(flags2) (flags2 & 1 << 7)
 
 /*
  * hwVersion encoding (fits in uint8_t):
@@ -436,7 +439,7 @@ typedef struct {
     int32_t nano;
     uint8_t fix_type;
     uint8_t fix_status;
-    uint8_t reserved1;
+    uint8_t flags2;
     uint8_t satellites;
     int32_t longitude;
     int32_t latitude;

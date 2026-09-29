@@ -136,6 +136,7 @@ static void crsfSensorHandleGPS(const uint8_t *payload)
     gpsSolDRV.flags.validVelD = false;
     gpsSolDRV.flags.validEPE = false;
     gpsSolDRV.flags.validTime = false;
+    gpsSolDRV.flags.validFixTime = false;
 
     gpsSolDRV.eph = gpsConstrainEPE(200);   // default ~2m
     gpsSolDRV.epv = gpsConstrainEPE(400);   // default ~4m

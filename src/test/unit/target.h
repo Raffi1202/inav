@@ -57,3 +57,7 @@
 #define TARGET_IO_PORTB         0xffff
 #define TARGET_IO_PORTC         0xffff
 
+#include <stddef.h>
+// glibc has no strnstr, newlib has it (see target/SITL/target.h)
+char *strnstr(const char *s, const char *find, size_t slen);
+

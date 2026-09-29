@@ -3357,6 +3357,7 @@ static mspResult_e mspFcProcessInCommand(uint16_t cmdMSP, sbuf_t *src)
             gpsSol.flags.validVelD = false;
             gpsSol.flags.validEPE = false;
             gpsSol.flags.validTime = false;
+            gpsSol.flags.validFixTime = false;
             gpsSol.numSat = sbufReadU8(src);
             gpsSol.llh.lat = sbufReadU32(src);
             gpsSol.llh.lon = sbufReadU32(src);
@@ -4588,6 +4589,7 @@ static void readMspSimulatorValues(sbuf_t *src, const int dataSize, const uint8_
         gpsSolDRV.fixType = sbufReadU8(src);
         gpsSolDRV.hdop = gpsSolDRV.fixType == GPS_NO_FIX ? 9999 : 100;
         gpsSolDRV.numSat = sbufReadU8(src);
+        gpsSolDRV.flags.validFixTime = false;
 
         if (gpsSolDRV.fixType != GPS_NO_FIX) {
             gpsSolDRV.flags.validVelNE = true;

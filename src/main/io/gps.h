@@ -132,6 +132,7 @@ typedef struct gpsSolutionData_s {
         bool validVelD;
         bool validEPE;      // EPH/EPV values are valid - actual accuracy
         bool validTime;
+        bool validFixTime;  // time is the fully resolved UTC of the same measurement as llh, with ms resolution
         bool validEllipsoidAltitude;
         bool validSpeedAccuracy;
         bool validHeadingAccuracy;
@@ -155,6 +156,7 @@ typedef struct gpsSolutionData_s {
     uint16_t hdop;  // generic HDOP value (*HDOP_SCALE)
 
     dateTime_t time; // GPS time in UTC
+    uint32_t fixTimeOfDayMs; // UTC time of day of this fix in ms, rounded, valid when flags.validFixTime
 
 } gpsSolutionData_t;
 
